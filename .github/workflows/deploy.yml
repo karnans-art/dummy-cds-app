@@ -1,0 +1,68 @@
+name: CDS Deploy
+
+# ── Triggers ─────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target'
+        required: true
+        default: 'uat'
+        type: choice
+        options: [uat, staging, production]
+
+jobs:
+  deploy:
+    name: Deploy CDS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Your actual deploy steps go here ────────────────────────
+      # e.g. docker build, kubectl apply, helm upgrade, etc.
+      - name: Build & Deploy
+        run: |
+          echo "Building CDS..."
+          echo "SHA: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Environment: ${{ inputs.environment || 'uat' }}"
+          sleep 3
+          echo "Deploy complete."
+
+      # ── Trigger load test in separate repo ───────────────────────
+      # Fires ONLY if deploy above succeeded (default: if: success())
+      - name: Trigger post-deploy load test
+        if: success()
+        env:
+          LOAD_TEST_TOKEN:  ${{ secrets.LOAD_TEST_DISPATCH_TOKEN }}
+          LOAD_TEST_REPO:   karnans-art/agentic-loadtesting
+        run: |
+          curl -s -o response.json -w "%{http_code}" -X POST \
+            -H "Authorization: token ${LOAD_TEST_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${LOAD_TEST_REPO}/dispatches" \
+            -d "{
+              \"event_type\": \"post-deploy-cds\",
+              \"client_payload\": {
+                \"environment\": \"${{ inputs.environment || 'uat' }}\",
+                \"sha\":         \"${{ github.sha }}\",
+                \"actor\":       \"${{ github.actor }}\",
+                \"ref\":         \"${{ github.ref_name }}\",
+                \"max_vus\":     \"6\"
+              }
+            }" > http_code.txt
+
+          HTTP_CODE=$(cat http_code.txt)
+          echo "GitHub API response code: ${HTTP_CODE}"
+          cat response.json
+
+          if [ "${HTTP_CODE}" != "204" ]; then
+            echo "Failed to trigger load test (expected 204, got ${HTTP_CODE})"
+            exit 1
+          fi
+
+          echo "Load test triggered successfully in karnans-art/agentic-loadtesting"
