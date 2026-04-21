@@ -39,7 +39,7 @@ jobs:
         if: success()
         env:
           LOAD_TEST_TOKEN:  ${{ secrets.LOAD_TEST_DISPATCH_TOKEN }}
-          LOAD_TEST_REPO:   karnans-art/agentic-loadtesting
+          LOAD_TEST_REPO:   karnans-art/load_testing_agentic_dev
         run: |
           curl -s -o response.json -w "%{http_code}" -X POST \
             -H "Authorization: token ${LOAD_TEST_TOKEN}" \
